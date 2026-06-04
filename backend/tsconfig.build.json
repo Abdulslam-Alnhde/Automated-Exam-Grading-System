@@ -5,10 +5,8 @@
     "outDir": "dist",
     "rootDir": "src",
     "declaration": false,
-    "baseUrl": "./src",
-    "ignoreDeprecations": "5.0",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src/**/*.ts", "src/**/*.d.ts"],
