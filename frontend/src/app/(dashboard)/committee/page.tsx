@@ -101,8 +101,9 @@ export default function CommitteeDashboard() {
           recentActivity: normalized.recentActivity,
         });
       })
-      .catch(() => {
-        setStatsError("تعذّر الاتصال بالخادم.");
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setStatsError(`تعذّر الاتصال بالخادم: ${msg}`);
         setData({ stats: { ...EMPTY_STATS }, recentActivity: [] });
       })
       .finally(() => setLoading(false));
