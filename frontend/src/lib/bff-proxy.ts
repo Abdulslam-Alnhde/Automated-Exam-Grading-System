@@ -79,6 +79,19 @@ export function internalFetchOnly(
 }
 
 export async function bffToNextResponse(upstream: Response): Promise<NextResponse> {
+  const contentType = upstream.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      const data = await upstream.json();
+      return NextResponse.json(data, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+      });
+    } catch (e) {
+      console.error("Failed to parse upstream JSON:", e);
+    }
+  }
+
   const headers = new Headers(upstream.headers);
   headers.delete("content-encoding");
   headers.delete("transfer-encoding");
