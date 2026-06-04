@@ -171,51 +171,50 @@ export class GeminiProvider implements AIProvider {
 
     const messages: any[] = [];
 
-    if (options.systemInstruction) {
-      messages.push({ role: "system", content: options.systemInstruction });
-    }
+    const systemInstruction = options.systemInstruction ? {
+      parts: [{ text: options.systemInstruction }]
+    } : undefined;
 
     const hasImages = parts.some((p) => !!p.image);
-    const contentParts: any[] = parts.map((p) => {
+    const apiParts: any[] = parts.map((p) => {
       if (p.pdf) {
         throw new Error(
-          "Native PDF parts are not supported by the Gemini chat endpoint. Convert PDF files before sending them."
+          "Native PDF parts are not supported by the Gemini endpoint here. Convert PDF files before sending them."
         );
       }
       if (p.image) {
         return {
-          type: "image_url",
-          image_url: {
-            url: `data:${p.image.mimeType};base64,${p.image.base64}`,
+          inlineData: {
+            mimeType: p.image.mimeType || "image/jpeg",
+            data: p.image.base64,
           },
         };
       }
-      return { type: "text", text: p.text || "" };
+      return { text: p.text || "" };
     });
 
-    const userContent: any = hasImages
-      ? contentParts
-      : contentParts.length === 1
-        ? contentParts[0].text ?? ""
-        : contentParts.map((c) => c.text ?? "").join("\n");
+    const contents = [
+      {
+        role: "user",
+        parts: apiParts
+      }
+    ];
 
-    messages.push({ role: "user", content: userContent });
-
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${this.apiKey}`,
-      "Content-Type": "application/json",
+    const generationConfig: Record<string, unknown> = {
+      temperature: options.temperature,
+      maxOutputTokens: options.maxTokens,
     };
+    if (options.responseMimeType === "application/json") {
+      generationConfig.responseMimeType = "application/json";
+    }
 
     const body: Record<string, unknown> = {
-      model: options.model,
-      messages,
-      temperature: options.temperature,
-      max_tokens: options.maxTokens,
-      response_format:
-        options.responseMimeType === "application/json"
-          ? { type: "json_object" }
-          : undefined,
+      contents,
+      generationConfig,
     };
+    if (systemInstruction) {
+      body.systemInstruction = systemInstruction;
+    }
 
     // Only Gemini 2.5 "thinking" models honor reasoning_effort. Sending it to
     // non-thinking models (e.g. gemini-2.0-flash) could be rejected, so guard it.
@@ -224,9 +223,13 @@ export class GeminiProvider implements AIProvider {
     }
 
     let response;
+    // Native endpoint URL
+    const nativeUrl = `https://generativelanguage.googleapis.com/v1beta/models/${options.model}:generateContent?key=${this.apiKey}`;
+    const headers = { "Content-Type": "application/json" };
+    
     for (let attempt = 0; attempt <= this.rateLimitRetries; attempt += 1) {
       try {
-        response = await axios.post(`${this.baseUrl}/chat/completions`, body, {
+        response = await axios.post(nativeUrl, body, {
           headers,
           timeout: this.timeoutMs,
         });
@@ -351,36 +354,26 @@ export class GeminiProvider implements AIProvider {
     }
 
     const result = response.data;
-    const text = extractAssistantTextContent(result?.choices?.[0]?.message?.content);
+    // Native API returns candidates[0].content.parts[0].text
+    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+    
     if (typeof text !== "string" || !text.trim()) {
-      const finishReason =
-        result?.choices?.[0]?.finish_reason ??
-        result?.choices?.[0]?.finishReason ??
-        "";
-      const choiceKeys =
-        result?.choices?.[0] && typeof result.choices[0] === "object"
-          ? Object.keys(result.choices[0]).slice(0, 12)
-          : [];
-      if (String(finishReason).toLowerCase() === "length") {
+      const finishReason = result?.candidates?.[0]?.finishReason ?? "";
+      if (String(finishReason).toLowerCase() === "max_tokens") {
         throw new Error(
-          `gemini response was truncated by the output token limit.` +
-            ` Increase maxTokens for this extraction flow.` +
-            (choiceKeys.length ? ` choice_keys=${choiceKeys.join(",")}.` : "")
+          `gemini response was truncated by the output token limit. Increase maxTokens for this extraction flow.`
         );
       }
-      throw new Error(
-        `gemini returned an empty response.` +
-          (finishReason ? ` finish_reason=${String(finishReason)}.` : "") +
-          (choiceKeys.length ? ` choice_keys=${choiceKeys.join(",")}.` : "")
-      );
+      throw new Error(`gemini returned an empty response. finish_reason=${String(finishReason)}.`);
     }
+    
     return {
       text,
       raw: result,
       usage: {
-        promptTokens: result.usage?.prompt_tokens || 0,
-        completionTokens: result.usage?.completion_tokens || 0,
-        totalTokens: result.usage?.total_tokens || 0,
+        promptTokens: result?.usageMetadata?.promptTokenCount ?? 0,
+        completionTokens: result?.usageMetadata?.candidatesTokenCount ?? 0,
+        totalTokens: result?.usageMetadata?.totalTokenCount ?? 0,
       },
     };
   }
