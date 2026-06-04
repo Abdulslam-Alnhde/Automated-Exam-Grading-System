@@ -1,19 +1,29 @@
 import { prisma } from "@/lib/prisma";
 
 export async function adminDashboardStats() {
-  const totalUsers = await prisma.user.count();
-  const totalExams = await prisma.exam.count();
-  const totalQuestions = await prisma.question.count();
-  const totalNotifications = await prisma.notification.count();
-  const roleDistribution = await prisma.user.groupBy({
-    by: ["role"],
-    _count: { id: true },
-  });
-  const recentExams = await prisma.exam.findMany({
-    take: 5,
-    orderBy: { createdAt: "desc" },
-    include: { teacher: true },
-  });
+  const [
+    totalUsers,
+    totalExams,
+    totalQuestions,
+    totalNotifications,
+    roleDistribution,
+    recentExams,
+  ] = await Promise.all([
+    prisma.user.count(),
+    prisma.exam.count(),
+    prisma.question.count(),
+    prisma.notification.count(),
+    prisma.user.groupBy({
+      by: ["role"],
+      _count: { id: true },
+    }),
+    prisma.exam.findMany({
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: { teacher: true },
+    }),
+  ]);
+
   return {
     metrics: { totalUsers, totalExams, totalQuestions, totalNotifications },
     roleDistribution,
@@ -22,17 +32,23 @@ export async function adminDashboardStats() {
 }
 
 export async function committeeDashboardStats() {
-  const totalPending = await prisma.exam.count({
-    where: { status: "PENDING_APPROVAL" },
-  });
-  const totalApproved = await prisma.exam.count({ where: { status: "APPROVED" } });
-  const totalRejected = await prisma.exam.count({ where: { status: "REJECTED" } });
-  const recentActivity = await prisma.notification.findMany({
-    where: { type: "status_change" },
-    take: 5,
-    orderBy: { createdAt: "desc" },
-    include: { user: true },
-  });
+  const [
+    totalPending,
+    totalApproved,
+    totalRejected,
+    recentActivity,
+  ] = await Promise.all([
+    prisma.exam.count({ where: { status: "PENDING_APPROVAL" } }),
+    prisma.exam.count({ where: { status: "APPROVED" } }),
+    prisma.exam.count({ where: { status: "REJECTED" } }),
+    prisma.notification.findMany({
+      where: { type: "status_change" },
+      take: 5,
+      orderBy: { createdAt: "desc" },
+      include: { user: true },
+    }),
+  ]);
+
   return {
     stats: {
       pending: totalPending,
